@@ -14,5 +14,7 @@ Topics:
 
 * Representations and Autoencoders, Variational Autoencoders (VAEs), Generative Adversarial Networks (GANs)
 
-* Hopfield /Boltzmann
+* Hopfield / Boltzmann
+
+Project: [AiBBA: GPT-2 Based Limerick Generator](https://github.com/mfogelson/11-785_project)
 
