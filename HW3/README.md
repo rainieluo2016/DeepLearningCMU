@@ -18,4 +18,6 @@ Kaggle: [Utterance to Phoneme Mapping](https://www.kaggle.com/c/11-785-fall-20-h
 
 * CTC Decoding: Beam Search
 
-* Evaluation: Levenstein distance (character-level string edit distance)
+* Evaluation: Levenshtein distance (character-level string edit distance)
+
+** Achieved an average distance < 8
