@@ -16,5 +16,17 @@ Topics:
 
 * Hopfield / Boltzmann
 
+Homework:
+
+* HW0: PyTorch and Numpy recap
+
+* HW1: Autograd and MLPs
+
+* HW2: CNNs
+
+* HW3: RNNs, LSTMs, GRUs
+
+* HW4: Language Model, Attention, Encoder-Decoder
+
 Project: [AiBBA: GPT-2 Based Limerick Generator](https://github.com/mfogelson/11-785_project)
 
