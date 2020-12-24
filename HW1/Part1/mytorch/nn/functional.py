@@ -1,12 +1,14 @@
 import numpy as np
 
-import mytorch.tensor as tensor
+# import mytorch.tensor as tensor
+from mytorch import tensor
 from mytorch.autograd_engine import Function
 
 
 class Transpose(Function):
     @staticmethod
     def forward(ctx, a):
+        # print('transpose', a)
         if not len(a.shape) == 2:
             raise Exception("Arg for Transpose must be 2D tensor: {}".format(a.shape))
         # print('before transpose', a)
@@ -19,14 +21,7 @@ class Transpose(Function):
     @staticmethod
     def backward(ctx, grad_output):
         # print('transpose back', tensor.Tensor(grad_output.data.T))
-        print(grad_output)
-        grad = tensor.Tensor(grad_output.data.T, requires_grad=False)
-        grad.grad = None
-        grad.grad_fn = None
-        print(grad)
-        print(grad.grad, grad.grad_fn)
-        return grad
-        # return tensor.Tensor(grad_output.data.T)
+        return tensor.Tensor(grad_output.data.T)
 
 
 class Reshape(Function):
@@ -122,14 +117,7 @@ class Add(Function):
         if grad_b.shape != b.data.shape:
             grad_b = unbroadcast(grad_b, b.data.shape)
         # the order of gradients returned should match the order of the arguments
-        grad_a = tensor.Tensor(grad_a, requires_grad=False)
-        grad_a.grad = None
-        grad_a.grad_fn = None
-        grad_b = tensor.Tensor(grad_b, requires_grad=False)
-        grad_b.grad = None
-        grad_b.grad_fn = None
-        return grad_a, grad_b
-        # return tensor.Tensor(grad_a), tensor.Tensor(grad_b)
+        return tensor.Tensor(grad_a), tensor.Tensor(grad_b)
 
 
 class Sub(Function):
@@ -242,6 +230,25 @@ class Div(Function):
         return tensor.Tensor(grad_a), tensor.Tensor(grad_b)
 
 
+class Pow(Function):
+    @staticmethod
+    def forward(ctx, a, b):
+        if not (type(a).__name__ == 'Tensor' and type(b).__name__ == 'Tensor'):
+            raise Exception("Both args must be Tensors: {}, {}".format(type(a).__name__, type(b).__name__))
+        ctx.save_for_backward(a, b)
+        requires_grad = a.requires_grad or b.requires_grad
+        c = tensor.Tensor(np.power(a.data, b.data), requires_grad=requires_grad,
+                          is_leaf=not requires_grad)
+        return c
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # retrieve forward inputs that we stored
+        a, b = ctx.saved_tensors
+        grad_a = tensor.Tensor(b.data * np.power(a.data, b.data - 1))
+        return grad_a
+
+
 class Matmul(Function):
     @staticmethod
     def forward(ctx, a, b):
@@ -262,19 +269,14 @@ class Matmul(Function):
     def backward(ctx, grad_output):
         # retrieve forward inputs that we stored
         a, b = ctx.saved_tensors
-
+        if len(a.shape) == 1:
+            a = a.reshape(-1, 1)
+        # print('matmul backward', a, b)
         # calculate gradient of output w.r.t. each input
         grad_a = np.dot(grad_output.data, b.T().data)
         grad_b = np.dot(a.T().data, grad_output.data)
         # the order of gradients returned should match the order of the arguments
-        grad_a = tensor.Tensor(grad_a, requires_grad=False)
-        grad_a.grad = None
-        grad_a.grad_fn = None
-        grad_b = tensor.Tensor(grad_b, requires_grad=False)
-        grad_b.grad = None
-        grad_b.grad_fn = None
-        return grad_a, grad_b
-        # return tensor.Tensor(grad_a), tensor.Tensor(grad_b)
+        return tensor.Tensor(grad_a), tensor.Tensor(grad_b)
 
 
 class ReLU(Function):
@@ -292,11 +294,7 @@ class ReLU(Function):
     @staticmethod
     def backward(ctx, grad_output):
         c = ctx.saved_tensors[0]
-        grad = tensor.Tensor(np.where(c.data > 0, 1, 0)) * grad_output
-        grad.grad = None
-        grad.grad_fn = None
-        # return tensor.Tensor(np.where(c.data > 0, 1, 0)) * grad_output
-        return grad
+        return tensor.Tensor(np.where(c.data > 0, 1, 0)) * grad_output
 
 
 # class Sum(Function):
@@ -351,7 +349,7 @@ class Square(Function):
     @staticmethod
     def backward(ctx, grad_output):
         a = ctx.saved_tensors[0]
-        return tensor.Tensor(0.5 / np.sqrt(a.data)) * grad_output
+        return tensor.Tensor(-1 / np.square(a)) * grad_output
 
 
 def unbroadcast(grad, shape, to_keep=0):
@@ -478,9 +476,9 @@ class Conv1d(Function):
         for b in range(batch_size):
             for i in range(0, input_size - kernel_size + 1, stride):
                 # for c in range(out_channel):
-                segment = x[b, :, i:i+kernel_size]
-                    # weight_c = weight[c, :, :]
-                    # bias_c = bias[c]
+                segment = x[b, :, i:i + kernel_size]
+                # weight_c = weight[c, :, :]
+                # bias_c = bias[c]
                 out[b, :, i] = np.sum(np.sum(segment * weight, axis=1), axis=1) + bias
 
         # TODO: Put output into tensor with correct settings and return
@@ -493,63 +491,65 @@ class Conv1d(Function):
         raise NotImplementedError("Implement functional.Conv1d.backward()!")
 
 
-class Dropout(Function):
+class Slice(Function):
     @staticmethod
-    def forward(ctx, x, p=0.5, is_train=False):
-        """Forward pass for dropout layer.
-
+    def forward(ctx, x, indices):
+        '''
         Args:
-            ctx (ContextManager): For saving variables between forward and backward passes.
-            x (Tensor): Data tensor to perform dropout on
-            p (float): The probability of dropping a neuron output.
-                       (i.e. 0.2 -> 20% chance of dropping)
-            is_train (bool, optional): If true, then the Dropout module that called this
-                                       is in training mode (`<dropout_layer>.is_train == True`).
-
-                                       Remember that Dropout operates differently during train
-                                       and eval mode. During train it drops certain neuron outputs.
-                                       During eval, it should NOT drop any outputs and return the input
-                                       as is. This will also affect backprop correspondingly.
-        """
-        if not type(x).__name__ == 'Tensor':
-            raise Exception("Only dropout for tensors is supported")
-
-        if is_train:
-            mask = np.random.binomial(1, 1 - p, x.shape)
-            out = x.data * mask / (1 - p)
-        else:
-            mask = np.ones(x.shape)
-            out = x.data
-        ctx.save_for_backward(x, tensor.Tensor(mask), tensor.Tensor(p))
-        return tensor.Tensor(out, requires_grad=x.requires_grad)
-
+            x (tensor): Tensor object that we need to slice
+            indices (int,list,Slice): This is the key passed to the __getitem__ function of the Tensor object when it is sliced using [ ] notation.
+        '''
+        ctx.save_for_backward(x, tensor.Tensor(indices))
+        return tensor.Tensor(x.data[indices], requires_grad=x.requires_grad)
 
     @staticmethod
     def backward(ctx, grad_output):
-        x, mask, p = ctx.saved_tensors
-        p = p.data.item()
-        x_grad = grad_output.data * mask.data / (1 - p)
-        x_grad = tensor.Tensor(x_grad, requires_grad=False, is_leaf=True)
-        x_grad.grad = None
-        x_grad.grad_fn = None
-        return x_grad
-        # print('grad output', grad_output)
-        # x, mask = ctx.saved_tensors
-        # print('saved', x, mask)
-        # x_grad = np.zeros(x.data.shape).reshape(1, -1)
-        # mask = mask.data.reshape(1, -1)
-        # grad_data = grad_output.data.reshape(1, -1)
-        # print('shapes', x_grad.shape, mask.shape, grad_data.shape)
-        # indices = [lst[1] for lst in np.argwhere(mask == 1)]
-        # print(indices)
-        # for i in range(len(indices)):
-        #     x_grad[0, indices[i]] = grad_data[0, i]
-        # x_grad = x_grad.reshape(x.data.shape[0], x.data.shape[1])
-        # x_grad = tensor.Tensor(x_grad, requires_grad=False)
-        # print('x_grad', x_grad.shape, x_grad)
-        # x_grad.grad.grad_fn = None
-        # return x_grad
+        x, indices = ctx.saved_tensors
+        x_grad = np.zeros(x.data.shape)
+        if len(indices.shape) == 0:
+            key = indices.data
+        else:
+            key = tuple(list(indices.data))
+        x_grad[key] = grad_output.data
+        return tensor.Tensor(x_grad)
 
+
+class Cat(Function):
+    @staticmethod
+    def forward(ctx, *args):
+        '''
+        Args:
+            args (list): [*seq, dim]
+
+        NOTE: seq (list of tensors) contains the tensors that we wish to concatenate while dim (int) is the dimension along which we want to concatenate
+        '''
+        *seq, dim = args
+        ctx.save_for_backward(*seq, tensor.Tensor(dim))
+        seq_tuple = tuple(s.data for s in seq)
+        return tensor.Tensor(np.concatenate(seq_tuple, axis=int(dim)))
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # print('grad_output', grad_output.data.shape, grad_output.data, type(grad_output.data))
+        seq = ctx.saved_tensors
+        dim = int(seq[-1].data)
+        seq = seq[:-1]
+        shapes = [np.array(s.shape) for s in seq]
+        slices = [slice(None, None, None) for i in range(len(shapes[0]))]
+
+        grads = []
+        start = 0
+        for s in seq:
+            s_shape = s.shape[dim]
+            slices[dim] = slice(start, start + s_shape)
+            if len(slices) > 1:
+                key = tuple(slices)
+            else:
+                key = slices[0]
+            grads.append(tensor.Tensor(grad_output.data[key]))
+            start = start + s_shape
+        return tuple(grads)
+        # return (*grads, None)
 
 
 class Sigmoid(Function):
