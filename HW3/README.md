@@ -20,4 +20,4 @@ Kaggle: [Utterance to Phoneme Mapping](https://www.kaggle.com/c/11-785-fall-20-h
 
 * Evaluation: Levenshtein distance (character-level string edit distance)
 
-** Achieved an average distance < 8
+  * Achieved an average distance < 8
